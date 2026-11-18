@@ -1,42 +1,43 @@
 
-import os
-import sys
+import pika
 import uuid
-import time
+import json
+import sys
 
-QUEUE_FILE = "queue.txt"
-LOCK_FILE = "queue.lock"
-
-
-def acquire_lock():
-    while True:
-        try:
-            return os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            time.sleep(0.1)
+connection = pika.BlockingConnection(
+    pika.ConnectionParameters(
+        host="localhost",
+        port=5672,
+        credentials=pika.PlainCredentials("guest", "guest")
+    )
+)
 
 
-def release_lock(lock):
-    os.close(lock)
-    os.remove(LOCK_FILE)
+channel = connection.channel()
 
-
-def add_task():
-    lock = acquire_lock()
-
-    try:
-        task_id = str(uuid.uuid4())
-
-        with open(QUEUE_FILE, "a") as file:
-            file.write(f"{task_id},pending\n")
-
-        print(f"Dodano zadanie: {task_id}")
-
-    finally:
-        release_lock(lock)
+channel.queue_declare(
+    queue="conversations",
+    durable=True
+)
 
 
 count = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 
-for _ in range(count):
-    add_task()
+for i in range(count):
+    task = {
+        "id": str(uuid.uuid4()),
+        "status": "pending"
+    }
+
+    channel.basic_publish(
+        exchange="",
+        routing_key="conversations",
+        body=json.dumps(task),
+        properties=pika.BasicProperties(
+            delivery_mode=2
+        )
+    )
+
+    print(f"Dodano zadanie: {task['id']}")
+
+connection.close()
